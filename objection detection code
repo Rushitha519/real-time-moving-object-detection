@@ -1,0 +1,62 @@
+import cv2
+from ultralytics import YOLO
+
+# Load YOLO model (auto downloads)
+model = YOLO("yolov8n.pt")
+
+# Replace with your ESP32 stream URL
+url = "http://172.20.10.2/stream"
+cap = cv2.VideoCapture(url)
+
+prev_frame = None
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Failed to grab frame")
+        break
+
+    # -------- MOTION DETECTION --------
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+    motion = False
+    if prev_frame is not None:
+        diff = cv2.absdiff(prev_frame, gray)
+        thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)[1]
+
+        if cv2.countNonZero(thresh) > 5000:
+            motion = True
+
+    prev_frame = gray
+
+    # -------- YOLO OBJECT DETECTION --------
+    results = model(frame)
+
+    for r in results:
+        for box in r.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = float(box.conf[0])
+            cls = int(box.cls[0])
+
+            label = model.names[cls]
+
+            if conf > 0.5:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0,255,0), 2)
+                cv2.putText(frame, f"{label} {conf:.2f}", 
+                            (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                            0.5, (0,255,0), 2)
+
+    # -------- SHOW MOTION STATUS --------
+    if motion:
+        cv2.putText(frame, "MOTION DETECTED!", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 3)
+
+    cv2.imshow("YOLO + Motion Detection", frame)
+
+    if cv2.waitKey(1) & 0xFF == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+exit()
